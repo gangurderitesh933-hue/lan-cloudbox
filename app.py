@@ -228,45 +228,19 @@ def login_page():
         """)
         st.info("For the first run, sign in with the demo administrator account shown in the README. Change the default password before using this on a shared network.")
     with right:
-        login_tab, register_tab = st.tabs(["Sign in", "Create student account"])
-        with login_tab:
-            with st.form("login_form"):
-                username = st.text_input("Username", placeholder="Enter your username")
-                password = st.text_input("Password", type="password", placeholder="Enter your password")
-                submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
-            if submitted:
-                user = authenticate(username, password)
-                if user:
-                    st.session_state.user = dict(user)
-                    record(user["username"], "LOGIN", "Signed in")
-                    st.rerun()
-                st.error("Incorrect username or password.")
-        with register_tab:
-            with st.form("register_form"):
-                new_user = st.text_input("Choose username", max_chars=30)
-                p1 = st.text_input("Password", type="password")
-                p2 = st.text_input("Confirm password", type="password")
-                created = st.form_submit_button("Create account", type="primary", use_container_width=True)
-            if created:
-                uname = new_user.strip()
-                if not re.fullmatch(r"[A-Za-z0-9_-]{3,30}", uname):
-                    st.error("Use 3–30 letters, numbers, underscores, or hyphens.")
-                elif uname.lower() == "admin":
-                    st.error("That username is reserved.")
-                elif len(p1) < 8:
-                    st.error("Use a password with at least 8 characters.")
-                elif p1 != p2:
-                    st.error("Passwords do not match.")
-                else:
-                    salt = os.urandom(16).hex()
-                    try:
-                        with db() as con:
-                            con.execute("INSERT INTO users(username,password_hash,salt,role,created_at) VALUES(?,?,?,?,?)",
-                                        (uname, hash_password(p1, salt), salt, "student", now()))
-                        record(uname, "REGISTER", "Created student account")
-                        st.success("Account created. Switch to Sign in.")
-                    except sqlite3.IntegrityError:
-                        st.error("That username already exists.")
+        st.subheader("Sign in to your account")
+        st.caption("Only accounts created by the administrator can access this workspace.")
+        with st.form("login_form"):
+            username = st.text_input("Username", placeholder="Enter your username")
+            password = st.text_input("Password", type="password", placeholder="Enter your password")
+            submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+        if submitted:
+            user = authenticate(username, password)
+            if user:
+                st.session_state.user = dict(user)
+                record(user["username"], "LOGIN", "Signed in")
+                st.rerun()
+            st.error("Incorrect username or password. Contact the administrator if you need an account.")
 
 def dashboard_page(user):
     is_admin = user["role"] == "admin"
@@ -458,12 +432,38 @@ def dashboard_page(user):
                         st.error(f"Delete failed: {exc}")
 
     elif selected == "Users" and is_admin:
+        st.subheader("Manage student accounts")
+        st.caption("Create accounts here. Public self-registration is disabled; only accounts created by an administrator can sign in.")
+        with st.form("admin_create_student_form"):
+            new_user = st.text_input("Student username", max_chars=30, key="admin_new_username")
+            p1 = st.text_input("Temporary password (minimum 8 characters)", type="password", key="admin_new_password")
+            p2 = st.text_input("Confirm password", type="password", key="admin_confirm_password")
+            create_student = st.form_submit_button("Create student account", type="primary")
+        if create_student:
+            uname = new_user.strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]{3,30}", uname):
+                st.error("Use 3–30 letters, numbers, underscores, or hyphens for the username.")
+            elif uname.lower() == "admin":
+                st.error("That username is reserved.")
+            elif len(p1) < 8:
+                st.error("Use a password with at least 8 characters.")
+            elif p1 != p2:
+                st.error("Passwords do not match.")
+            else:
+                salt = os.urandom(16).hex()
+                try:
+                    with db() as con:
+                        con.execute("INSERT INTO users(username,password_hash,salt,role,created_at) VALUES(?,?,?,?,?)",
+                                    (uname, hash_password(p1, salt), salt, "student", now()))
+                    record(user["username"], "CREATE_STUDENT", uname)
+                    st.success(f"Student account '{uname}' created successfully.")
+                except sqlite3.IntegrityError:
+                    st.error("That username already exists.")
+        st.divider()
         st.subheader("Registered accounts")
         with db() as con:
             users = con.execute("SELECT id,username,role,created_at FROM users ORDER BY created_at").fetchall()
-        st.caption(f"{len(users)} registered account(s). Student accounts appear here after they complete registration.")
-        if len(users) <= 1:
-            st.info("Only the administrator account exists. Sign out and use Create account on the sign-in screen to register a student account before testing sharing.")
+        st.caption(f"{len(users)} registered account(s).")
         for u in users:
             with st.container(border=True):
                 a,b,c = st.columns([2,2,1])
